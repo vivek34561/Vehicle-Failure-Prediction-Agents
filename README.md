@@ -50,27 +50,69 @@ This project demonstrates **agentic AI**, **system design**, and **LLM orchestra
 - Intelligent query routing
 - JSON-based dataset for local testing
 - Historical analysis logging
-- Vercel-ready serverless deployment
 
----
+### Install Dependencies
 
-## Tech Stack
+```bash
+pip install -r requirements.txt
+```
 
-- Python 3.10+
-- FastAPI
-- Gemini LLM API
-- Pydantic
-- Uvicorn
-- JSON (local data storage)
+### Configure Environment Variables
 
----
+Copy the example environment file and set `GEMINI_API_KEY`. Choose the commands that match your environment:
 
-## System Architecture
+Linux / macOS:
+```bash
+cp .env.example .env
+# session-only
+export GEMINI_API_KEY='your-api-key-here'
+```
 
-### High-Level Design
+Windows PowerShell (session-only):
+```powershell
+Copy-Item .env.example .env
+$env:GEMINI_API_KEY = 'your-api-key-here'
+```
 
-User
-│
+Windows PowerShell (persist):
+```powershell
+Copy-Item .env.example .env
+setx GEMINI_API_KEY "your-api-key-here"
+# open a new shell to see the persistent variable
+```
+
+Windows CMD (session-only):
+```cmd
+copy .env.example .env
+set GEMINI_API_KEY=your-api-key-here
+```
+
+### Run Locally
+
+Start the server:
+
+```bash
+python main.py
+```
+
+Server will be available at `http://localhost:8000` and the interactive docs at `http://localhost:8000/docs`.
+
+Stopping the server:
+
+- Press `Ctrl+C` in the terminal running the server to stop it.
+- If it doesn't stop, on Windows PowerShell you can run: `Get-Process python | Stop-Process -Force`.
+
+Run in background (PowerShell example):
+
+```powershell
+Start-Process -NoNewWindow -FilePath python -ArgumentList 'main.py'
+```
+
+Alternative (run with Uvicorn directly):
+
+```bash
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
 ▼
 FastAPI Server
 │
@@ -85,44 +127,51 @@ Master Agent (LLM)
 JSON Dataset & History Logs
 
 yaml
-Copy code
+## API Endpoints
 
----
+Core endpoints:
 
-## Agent Responsibilities
+- `GET /` — API information
+- `GET /health` — Health status and total vehicles
+- `GET /vehicles` — List all vehicle IDs
+- `GET /vehicle/{vehicle_id}` — Full vehicle data (see `dataset/vehicle_realtime_data.json` for available fields)
+- `GET /history/{vehicle_id}` — Historical analysis logs (query param `limit` optional)
 
-### Master Agent
-- Understands user intent using LLM reasoning
-- Routes queries to the correct specialist agent
-- Aggregates and formats responses
+AI-powered endpoints:
 
-### Diagnostic Agent
-- Detects anomalies in sensor data
-- Checks sensor values against safe thresholds
-- Identifies faults and health risks
+- `POST /query`
 
-### Maintenance Agent
-- Predicts upcoming service requirements
-- Estimates urgency and priority
-- Recommends maintenance actions
+  Request body JSON:
 
-### Performance Agent
-- Analyzes driving efficiency
-- Evaluates vehicle performance
-- Suggests optimization improvements
+  ```json
+  {
+    "vehicle_id": "VH001",
+    "query": "Is my car healthy?"
+  }
+  ```
 
----
+  Response JSON example:
 
-## Data Flow
+  ```json
+  {
+    "vehicle_id": "VH001",
+    "agent_used": "diagnostic",
+    "response": "Vehicle operating within safe limits.",
+    "timestamp": "2025-01-01T10:15:00"
+  }
+  ```
 
-1. User sends a query
-2. Master Agent interprets intent
-3. Specialized agent analyzes vehicle data
-4. Result is logged to history
-5. Final response returned to user
+- `POST /analyze`
 
----
+  Request body JSON:
 
+  ```json
+  {
+    "vehicle_id": "VH001"
+  }
+  ```
+
+  Returns a combined analysis object containing `diagnostic`, `maintenance`, and `performance` text outputs from each agent.
 ## Quickstart
 
 ### Prerequisites
@@ -191,10 +240,11 @@ Copy code
 }
 Returns combined diagnostic, maintenance, and performance analysis.
 
-Examples
-Python Client
-python
-Copy code
+## Examples
+
+Python client example (requests):
+
+```python
 import requests
 
 BASE_URL = "http://localhost:8000"
@@ -208,109 +258,91 @@ response = requests.post(
 )
 
 print(response.json())
-cURL
-bash
-Copy code
+```
+
+cURL example:
+
+```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{"vehicle_id":"VH001","query":"Is my car healthy?"}'
-Data & Sensors
-Each vehicle record contains:
+```
 
-vehicle_id
+## Data & Sensors
 
-car_type
+Each vehicle record (see `dataset/vehicle_realtime_data.json`) contains:
 
-available_sensor_fields
+- `vehicle_id` (string)
+- `car_type` (string)
+- `available_sensor_fields` (object mapping sensor names to values)
 
-Common Sensors
-engine_temp_c
+Common sensors include:
 
-rpm
+- `engine_temp_c` (°C)
+- `rpm`
+- `battery_voltage`
+- `battery_soc` (percent)
+- `oil_pressure_kpa`
+- `coolant_temp_c`
+- `fuel_level_percent`
+- `speed_kmph`
+- Tire pressures: `tire_pressure_fl`, `tire_pressure_fr`, etc.
+- `dtc_codes` (list of diagnostic trouble codes)
+- `gps_lat`, `gps_lon`
+- EV-specific: `motor_temp_c`, `inverter_temp_c`, `charger_state`
 
-battery_voltage
+Sensor reference ranges are defined in `utils.py` as `SENSOR_RANGES`.
 
-battery_soc
+## Deployment (Vercel)
 
-oil_pressure_kpa
+This project includes a Vercel-compatible API entrypoint (`api/index.py`) and `vercel.json`.
 
-coolant_temp_c
+To deploy:
 
-fuel_level_percent
-
-speed_kmph
-
-tire_pressure
-
-DTC fault codes
-
-GPS coordinates
-
-EV motor temperature
-
-Sensor reference ranges are defined in:
-
-Copy code
-utils.py → SENSOR_RANGES
-Deployment (Vercel)
-This project includes:
-
-vercel.json
-
-api/index.py (ASGI adapter)
-
-Deploy
-bash
-Copy code
+```bash
 npm i -g vercel
 vercel deploy --prod
-Add GEMINI_API_KEY as a Vercel Environment Variable.
+```
 
-Notes
-Local file writes are ephemeral in serverless environments
+Add `GEMINI_API_KEY` as a Vercel Environment Variable. Note that local file writes are ephemeral in serverless environments; use external storage (S3, database, or Vercel KV) for persistence.
 
-Use external storage (S3, database, Vercel KV) for persistence
+## Security
 
-Scheduled monitoring requires Vercel Cron Jobs or external scheduler
-
-Security
-Never commit .env files
-
-Always use .env.example
-
-Rotate API keys immediately if exposed
+- Never commit `.env` files. Keep a `.env.example` in the repo.
+- Rotate API keys immediately if exposed.
 
 To remove committed secrets:
 
-bash
-Copy code
+```bash
 git rm --cached .env
 git commit -m "Remove committed secrets"
-Development & Contributing
-Local Development
-bash
-Copy code
+```
+
+## Development & Contributing
+
+Local development:
+
+```bash
 pip install -r requirements.txt
 python main.py
-Contribution Guidelines
-Follow PEP8
+```
 
-Use type hints
+Guidelines:
 
-Keep agents modular
+- Follow PEP8
+- Use type hints
+- Keep agents modular
+- Do not commit secrets
 
-Do not commit secrets
+Adding a new agent:
 
-Adding a New Agent
-Implement agent logic in agents_final.py
+1. Implement agent logic in `agents_final.py`
+2. Update master agent routing
+3. Test using `/query`
 
-Update Master Agent routing
+## Project Structure
 
-Test using /query
-
-Project Structure
-bash
-Copy code
+```
 .
 ├── main.py                 # FastAPI app
 ├── agents_final.py         # Agent logic & routing
@@ -323,20 +355,18 @@ Copy code
 ├── requirements.txt
 ├── vercel.json
 └── README.md
-Future Enhancements
-Persistent database (PostgreSQL / MongoDB)
+```
 
-Real-time telemetry ingestion
+## Future Enhancements
 
-Alerting & notification system
+- Persistent database (PostgreSQL / MongoDB)
+- Real-time telemetry ingestion
+- Alerting & notification system
+- Agent memory and learning loop
+- Dashboard frontend (React)
+- Mobile application (React Native)
+- OEM & IoT integrations
 
-Agent memory and learning loop
+## License
 
-Dashboard frontend (React)
-
-Mobile application (React Native)
-
-OEM & IoT integrations
-
-License
 MIT License
