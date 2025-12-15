@@ -1,87 +1,125 @@
 # Vehicle Analysis & Maintenance System
 
-AI-powered vehicle diagnostics, maintenance scheduling, and performance analysis using agentic AI with LLM-based routing.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+AI-powered vehicle diagnostics, maintenance scheduling, and performance analysis using an **agentic AI architecture** with LLM-powered specialized agents.
+
+---
+
+## Table of Contents
+
+- Overview
+- Features
+- Tech Stack
+- System Architecture
+- Agent Responsibilities
+- Data Flow
+- Quickstart
+- API Endpoints
+- Examples
+- Data & Sensors
+- Deployment (Vercel)
+- Security
+- Development & Contributing
+- Project Structure
+- Future Enhancements
+- License
 
 ---
 
 ## Overview
 
-The Vehicle Analysis & Maintenance System is an AI-driven backend platform that analyzes real-time and historical vehicle sensor data.
+The **Vehicle Analysis & Maintenance System** is an AI-driven backend platform that analyzes real-time and historical vehicle sensor data to deliver intelligent insights.
 
-A Master Agent interprets user intent and routes requests to specialized agents for diagnostics, maintenance, and performance analysis.
+It uses a **Master Agent** to understand user intent and route queries to the most appropriate specialized agent:
+
+- Diagnostic Agent
+- Maintenance Agent
+- Performance Agent
+
+This project demonstrates **agentic AI**, **system design**, and **LLM orchestration**, making it suitable for production, research, hackathons, and resumes.
 
 ---
 
 ## Features
 
-- FastAPI backend with Swagger UI  
-- LLM-powered Master Agent  
-- Diagnostic, Maintenance, and Performance agents  
-- Intelligent query routing  
-- JSON-based dataset for local testing  
-- Historical analysis logs  
-- Vercel-ready deployment  
+- FastAPI backend with Swagger UI
+- LLM-powered Master Agent
+- Diagnostic, Maintenance, and Performance agents
+- Intelligent query routing
+- JSON-based dataset for local testing
+- Historical analysis logging
+- Vercel-ready serverless deployment
 
 ---
 
 ## Tech Stack
 
-- Python 3.10+  
-- FastAPI  
-- Gemini LLM API  
-- Pydantic  
-- Uvicorn  
-- JSON-based local storage  
+- Python 3.10+
+- FastAPI
+- Gemini LLM API
+- Pydantic
+- Uvicorn
+- JSON (local data storage)
 
 ---
 
 ## System Architecture
 
-User  
-↓  
-FastAPI Server  
-↓  
-Master Agent (LLM)  
-↓  
-Diagnostic Agent  
-Maintenance Agent  
-Performance Agent  
-↓  
-JSON Dataset and History Logs  
+### High-Level Design
+
+User
+│
+▼
+FastAPI Server
+│
+▼
+Master Agent (LLM)
+│
+├── Diagnostic Agent
+│── Maintenance Agent
+│── Performance Agent
+│
+▼
+JSON Dataset & History Logs
+
+yaml
+Copy code
 
 ---
 
 ## Agent Responsibilities
 
 ### Master Agent
-- Interprets user intent  
-- Routes queries to appropriate agents  
-- Aggregates and formats responses  
+- Understands user intent using LLM reasoning
+- Routes queries to the correct specialist agent
+- Aggregates and formats responses
 
 ### Diagnostic Agent
-- Detects anomalies  
-- Validates sensor thresholds  
-- Reports vehicle health and faults  
+- Detects anomalies in sensor data
+- Checks sensor values against safe thresholds
+- Identifies faults and health risks
 
 ### Maintenance Agent
-- Predicts service requirements  
-- Estimates urgency  
-- Recommends maintenance actions  
+- Predicts upcoming service requirements
+- Estimates urgency and priority
+- Recommends maintenance actions
 
 ### Performance Agent
-- Analyzes efficiency  
-- Evaluates driving behavior  
-- Suggests performance optimizations  
+- Analyzes driving efficiency
+- Evaluates vehicle performance
+- Suggests optimization improvements
 
 ---
 
 ## Data Flow
 
-1. User submits query  
-2. Master Agent analyzes intent  
-3. Specialized agent processes data  
-4. Analysis logged to history  
-5. Response returned to user  
+1. User sends a query
+2. Master Agent interprets intent
+3. Specialized agent analyzes vehicle data
+4. Result is logged to history
+5. Final response returned to user
 
 ---
 
@@ -89,78 +127,93 @@ JSON Dataset and History Logs
 
 ### Prerequisites
 
-- Python 3.10+  
-- Gemini API Key  
+- Python 3.10+
+- Gemini API Key
+
+---
 
 ### Install Dependencies
 
-```text
+```bash
 pip install -r requirements.txt
-Configure Environment
-text
+Configure Environment Variables
+bash
 Copy code
 cp .env.example .env
+env
+Copy code
 GEMINI_API_KEY=your_gemini_api_key_here
 Run Locally
-text
+bash
 Copy code
 python main.py
-Access API documentation at:
+Open in browser:
+
+bash
+Copy code
 http://localhost:8000/docs
-
 API Endpoints
-Core
-GET / — API information
+Core Endpoints
+Method	Endpoint	Description
+GET	/	API information
+GET	/health	Health status
+GET	/vehicles	List all vehicles
+GET	/vehicle/{vehicle_id}	Full vehicle data
+GET	/history/{vehicle_id}	Historical analysis logs
 
-GET /health — Health status
+AI-Powered Endpoints
+POST /query
+Request body:
 
-GET /vehicles — List all vehicles
-
-GET /vehicle/{vehicle_id} — Full vehicle data
-
-GET /history/{vehicle_id} — Historical analysis logs
-
-AI-Powered
-POST /query — AI-powered query routing
-
-POST /analyze — Full vehicle analysis
-
-/query Request Body
 json
 Copy code
 {
   "vehicle_id": "VH001",
   "query": "Is my car healthy?"
 }
-/analyze Request Body
+Response:
+
+json
+Copy code
+{
+  "vehicle_id": "VH001",
+  "agent_used": "diagnostic",
+  "response": "Vehicle operating within safe limits.",
+  "timestamp": "2025-01-01T10:15:00"
+}
+POST /analyze
+Request body:
+
 json
 Copy code
 {
   "vehicle_id": "VH001"
 }
+Returns combined diagnostic, maintenance, and performance analysis.
+
 Examples
 Python Client
 python
 Copy code
 import requests
 
-BASE = "http://localhost:8000"
+BASE_URL = "http://localhost:8000"
 
 response = requests.post(
-    f"{BASE}/query",
+    f"{BASE_URL}/query",
     json={
         "vehicle_id": "VH001",
-        "query": "Is my car healthy?"
+        "query": "Do I need maintenance soon?"
     }
 )
 
 print(response.json())
 cURL
-text
+bash
 Copy code
 curl -X POST http://localhost:8000/query \
--H "Content-Type: application/json" \
--d '{"vehicle_id":"VH001","query":"Is my car healthy?"}'
+  -H "Content-Type: application/json" \
+  -d '{"vehicle_id":"VH001","query":"Is my car healthy?"}'
 Data & Sensors
 Each vehicle record contains:
 
@@ -170,8 +223,7 @@ car_type
 
 available_sensor_fields
 
-Common sensors include:
-
+Common Sensors
 engine_temp_c
 
 rpm
@@ -196,18 +248,33 @@ GPS coordinates
 
 EV motor temperature
 
-Reference ranges are defined in utils.py under SENSOR_RANGES.
+Sensor reference ranges are defined in:
 
+Copy code
+utils.py → SENSOR_RANGES
 Deployment (Vercel)
-text
+This project includes:
+
+vercel.json
+
+api/index.py (ASGI adapter)
+
+Deploy
+bash
 Copy code
 npm i -g vercel
 vercel deploy --prod
-Set GEMINI_API_KEY as an environment variable.
-File writes are ephemeral in serverless environments.
+Add GEMINI_API_KEY as a Vercel Environment Variable.
+
+Notes
+Local file writes are ephemeral in serverless environments
+
+Use external storage (S3, database, Vercel KV) for persistence
+
+Scheduled monitoring requires Vercel Cron Jobs or external scheduler
 
 Security
-Do not commit .env files
+Never commit .env files
 
 Always use .env.example
 
@@ -215,55 +282,61 @@ Rotate API keys immediately if exposed
 
 To remove committed secrets:
 
-text
+bash
 Copy code
 git rm --cached .env
 git commit -m "Remove committed secrets"
 Development & Contributing
-text
+Local Development
+bash
 Copy code
 pip install -r requirements.txt
 python main.py
-Guidelines:
-
+Contribution Guidelines
 Follow PEP8
 
 Use type hints
 
 Keep agents modular
 
-Never commit secrets
+Do not commit secrets
+
+Adding a New Agent
+Implement agent logic in agents_final.py
+
+Update Master Agent routing
+
+Test using /query
 
 Project Structure
-text
+bash
 Copy code
 .
-├── main.py
-├── agents_final.py
-├── utils.py
-├── monitor_cron.py
+├── main.py                 # FastAPI app
+├── agents_final.py         # Agent logic & routing
+├── utils.py                # Sensor ranges & data manager
+├── monitor_cron.py         # Scheduled monitoring
 ├── dataset/
 │   └── vehicle_realtime_data.json
 ├── api/
-│   └── index.py
+│   └── index.py            # Vercel entrypoint
 ├── requirements.txt
 ├── vercel.json
 └── README.md
 Future Enhancements
-Persistent database (PostgreSQL or MongoDB)
+Persistent database (PostgreSQL / MongoDB)
 
 Real-time telemetry ingestion
 
-Alerts and notification system
+Alerting & notification system
 
 Agent memory and learning loop
 
-Web dashboard
+Dashboard frontend (React)
 
-Mobile application
+Mobile application (React Native)
 
-OEM and IoT integrations
+OEM & IoT integrations
 
 License
-
 MIT License
