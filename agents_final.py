@@ -18,7 +18,11 @@ from utils import VehicleDataManager, get_sensor_status, SENSOR_RANGES
 
 
 
-gemini_model = GeminiModel("models/gemini-2.0-flash")
+gemini_model = GeminiModel(
+    model_name="models/gemini-1.5-flash",
+    api_key=os.getenv("GEMINI_API_KEY")
+)
+
 
 
 
@@ -475,9 +479,16 @@ async def get_comprehensive_analysis(vehicle_id: str, data_manager: VehicleDataM
 
         def safe_data(result, name):
             if isinstance(result, Exception):
-                print(f"[ERROR] {name} agent failed:", repr(result))
+                return {
+            "status": "failed",
+            "agent": name,
+            "error": repr(result)
+        }
                 return f"{name} analysis failed"
-            return result.data
+            return {
+        "status": "success",
+        "output": result.data
+    }
 
         return {
             "vehicle_id": vehicle_id,
