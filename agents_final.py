@@ -4,6 +4,8 @@ Specialized AI Agents for Vehicle Analysis using PydanticAI
 # agents_final.py (top of file)
 from dotenv import load_dotenv
 import os
+import asyncio
+
 
 # load .env into environment variables
 load_dotenv()
@@ -15,8 +17,10 @@ import json
 from utils import VehicleDataManager, get_sensor_status, SENSOR_RANGES
 
 
-# Initialize Gemini model
-gemini_model = GeminiModel("gemini-1.5-flash")
+
+gemini_model = GeminiModel("models/gemini-2.0-flash")
+
+
 
 
 @dataclass
@@ -444,37 +448,45 @@ async def route_query(query: str, vehicle_id: str, data_manager: VehicleDataMana
 
 
 async def get_comprehensive_analysis(vehicle_id: str, data_manager: VehicleDataManager) -> Dict[str, Any]:
-    """
-    Get comprehensive analysis from all agents (used for scheduled monitoring).
-    
-    Args:
-        vehicle_id: Vehicle identifier
-        data_manager: VehicleDataManager instance
-    
-    Returns:
-        Dictionary with analysis from all agents
-    """
     context = VehicleContext(vehicle_id=vehicle_id, data_manager=data_manager)
-    
-    # Run all agents in parallel
-    diagnostic_result = await diagnostic_agent.run(
-        "Perform complete diagnostic analysis of this vehicle. Check all systems and sensors.",
-        deps=context
-    )
-    
-    maintenance_result = await maintenance_agent.run(
-        "Provide complete maintenance assessment and recommendations for this vehicle.",
-        deps=context
-    )
-    
-    performance_result = await performance_agent.run(
-        "Analyze overall performance, efficiency, and driving metrics for this vehicle.",
-        deps=context
-    )
-    
-    return {
-        "vehicle_id": vehicle_id,
-        "diagnostic": diagnostic_result.data,
-        "maintenance": maintenance_result.data,
-        "performance": performance_result.data
-    }
+
+    try:
+        diagnostic_task = diagnostic_agent.run(
+            "Perform complete diagnostic analysis of this vehicle. Check all systems and sensors.",
+            deps=context
+        )
+
+        maintenance_task = maintenance_agent.run(
+            "Provide complete maintenance assessment and recommendations for this vehicle.",
+            deps=context
+        )
+
+        performance_task = performance_agent.run(
+            "Analyze overall performance, efficiency, and driving metrics for this vehicle.",
+            deps=context
+        )
+
+        diagnostic_result, maintenance_result, performance_result = await asyncio.gather(
+            diagnostic_task,
+            maintenance_task,
+            performance_task,
+            return_exceptions=True  # 🔥 prevents full crash
+        )
+
+        def safe_data(result, name):
+            if isinstance(result, Exception):
+                print(f"[ERROR] {name} agent failed:", repr(result))
+                return f"{name} analysis failed"
+            return result.data
+
+        return {
+            "vehicle_id": vehicle_id,
+            "diagnostic": safe_data(diagnostic_result, "diagnostic"),
+            "maintenance": safe_data(maintenance_result, "maintenance"),
+            "performance": safe_data(performance_result, "performance"),
+        }
+
+    except Exception as e:
+        print("[FATAL ANALYSIS ERROR]", repr(e))
+        raise
+
