@@ -75,42 +75,18 @@ class VehicleDataManager:
 
 
 class AnalysisLogger:
-    """Logger for saving analysis results"""
-    
-    def __init__(self, log_path: str = "dataset/analysis_logs.json"):
-        self.log_path = Path(log_path)
-        self.logs = self._load_logs()
-    
-    def _load_logs(self) -> List[Dict]:
-        """Load existing logs"""
-        if self.log_path.exists():
-            try:
-                with open(self.log_path, 'r') as f:
-                    return json.load(f)
-            except:
-                return []
-        return []
-    
+    def __init__(self):
+        self.logs = []
+
     def save_analysis(self, analysis_data: Dict) -> None:
-        """
-        Save analysis results to log file
-        
-        Args:
-            analysis_data: Dictionary containing analysis results
-        """
         self.logs.append(analysis_data)
-        
-        # Keep only last 1000 entries
+
         if len(self.logs) > 1000:
             self.logs = self.logs[-1000:]
-        
-        with open(self.log_path, 'w') as f:
-            json.dump(self.logs, f, indent=2)
-    
-    def get_vehicle_history(self, vehicle_id: str, limit: int = 10) -> List[Dict]:
-        """Get analysis history for a specific vehicle"""
+
+    def get_vehicle_history(self, vehicle_id: str, limit: int = 10):
         vehicle_logs = [
-            log for log in self.logs 
+            log for log in self.logs
             if log.get("vehicle_id") == vehicle_id
         ]
         return vehicle_logs[-limit:]
