@@ -11,6 +11,8 @@ from datetime import datetime
 from agents_final import route_query, get_comprehensive_analysis
 from utils import VehicleDataManager, AnalysisLogger
 
+# Data source: newData.json (rich telemetry) or oldData/vehicle_realtime_data.json
+DATASET_PATH = os.getenv("DATASET_PATH", "dataset/newData.json")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -28,8 +30,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize managers
-data_manager = VehicleDataManager()
+# Initialize managers (uses newData.json by default for detailed reports)
+data_manager = VehicleDataManager(db_path=DATASET_PATH)
 logger = AnalysisLogger()
 
 
@@ -45,8 +47,8 @@ class QueryRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "vehicle_id": "VH001",
-                "query": "Is my car healthy? Any issues I should be concerned about?"
+                "vehicle_id": "default",
+                "query": "Is my car healthy? Give me a detailed diagnostic report."
             }
         }
 
@@ -61,7 +63,7 @@ class AnalysisResponse(BaseModel):
 
 class ComprehensiveAnalysisRequest(BaseModel):
     """Request model for comprehensive analysis"""
-    vehicle_id: str = Field(..., description="Vehicle identifier (e.g., VH001)")
+    vehicle_id: str = Field(..., description="Vehicle identifier (e.g., default for newData)")
 
 
 class VehicleListResponse(BaseModel):
@@ -80,6 +82,8 @@ async def root():
     return {
         "message": "Vehicle Analysis & Maintenance System API",
         "version": "1.0.0",
+        "dataset": DATASET_PATH,
+        "note": "Use vehicle_id 'default' for newData.json (single vehicle telemetry)",
         "endpoints": {
             "POST /query": "Ask questions about a specific vehicle",
             "POST /analyze": "Get comprehensive analysis of a vehicle",

@@ -1,31 +1,39 @@
 """
 Specialized AI Agents for Vehicle Analysis using PydanticAI
+Filename: agents_final.py
 """
-# agents_final.py (top of file)
-from dotenv import load_dotenv
 import os
 import asyncio
-
-
-# load .env into environment variables
-load_dotenv()
 from typing import Optional, Dict, Any
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.gemini import GeminiModel
 from dataclasses import dataclass
 import json
+
+# Third-party imports
+from dotenv import load_dotenv
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.openai import OpenAIModel
+
+# Local imports (ensure utils.py exists in the same directory)
 from utils import VehicleDataManager, get_sensor_status, SENSOR_RANGES
 
+# Load environment variables (optional, since we are hardcoding the key below)
+load_dotenv()
 
+# ============================================================================
+# MODEL CONFIGURATION
+# ============================================================================
 
-gemini_model = GeminiModel(
-    model_name="gemini-2.0-flash",
-    api_key=os.getenv("GEMINI_API_KEY")
+# STRICTLY using the API key provided
+FIXED_API_KEY = "ff79bbc8103b418ca138a15734256bab.cf3FccbTvaGzs4PXIz8AHblp"
+
+# Configuration for the AI Model
+# Note: We use the OpenRouter endpoint because 'x-ai/grok-3-mini' is a cloud model
+# that cannot run on local Ollama.
+active_model = OpenAIModel(
+    model_name="x-ai/grok-3-mini",
+    base_url="https://openrouter.ai/api/v1",
+    api_key=FIXED_API_KEY
 )
-
-
-
-
 
 @dataclass
 class VehicleContext:
@@ -35,41 +43,39 @@ class VehicleContext:
 
 
 # ============================================================================
-# DIAGNOSTIC AGENT - Analyzes current vehicle health and detects issues
+# 1. DIAGNOSTIC AGENT
 # ============================================================================
 
 diagnostic_agent = Agent(
-    gemini_model,
+    active_model,
     deps_type=VehicleContext,
-    system_prompt="""You are an expert automotive diagnostic specialist AI.
+    system_prompt="""You are an expert automotive diagnostic specialist AI for electric and hybrid vehicles.
 
-Your role is to analyze real-time vehicle sensor data and identify any issues, anomalies, or health concerns.
+Your role is to analyze real-time vehicle sensor data and provide DETAILED diagnostic reports.
 
-When analyzing vehicle data, you should:
-1. Check all sensor readings against normal operating ranges
-2. Identify any values that are abnormal, concerning, or critical
-3. Look for patterns that might indicate developing problems
-4. Consider the vehicle type when evaluating readings (electric vs petrol vs diesel)
-5. Provide clear, specific diagnostics with severity levels
+When you receive data, analyze ALL categories thoroughly:
 
-Sensor Value Guidelines:
-- Engine Temperature: Normal 85-105°C, Warning 105-110°C, Critical >110°C
-- Battery Voltage (12V): Normal 12.4-14.8V, Warning 12.0-12.4V, Critical <12.0V
-- Battery Voltage (EV): Normal 300-450V
-- Oil Pressure: Normal 200-350 kPa, Warning 150-200 kPa, Critical <150 kPa
-- Coolant Temperature: Normal 80-95°C, Warning 95-105°C, Critical >105°C
-- Tire Pressure: Normal 30-35 PSI, Warning 25-30 PSI, Critical <25 PSI
-- Fuel Level: Normal >25%, Warning 10-25%, Critical <10%
-- RPM: Normal 0-3000, High 3000-5000, Very High >5000
-- Battery SOC (EV): Normal >20%, Warning 10-20%, Critical <10%
+1. **Battery Sensors** (battery_soc_pct, battery_soh_pct, pack voltage/current, cell voltages, temps, charging cycles)
+2. **Motor & Inverter** (motor RPM, torque, inverter temperature)
+3. **Brake System** (pedal position, hydraulic pressure, ABS status, wheel speeds, disc temp, pad wear %)
+4. **Chassis** (steering angle/torque, yaw/pitch/roll rates, suspension travel, stress index)
+5. **Electrical/ECU** (12V battery, ECU temp, CPU/memory load, CAN bus errors, fault codes)
+6. **Environmental** (ambient temp/humidity, pressure, rain, light)
+7. **Component Aging** (battery capacity fade, resistance growth, motor efficiency loss, thermal cycles)
+8. **Rate of Change** (temp rise rate, voltage drop, current spikes, torque fluctuation)
+9. **Signal Consistency** (speed sensor disagreement, wheel variance, GPS vs wheel delta)
+10. **Operational Context** (load, passengers, AC usage, driving mode, charging recency)
 
-Always provide:
-- Overall health status (Excellent/Good/Fair/Poor/Critical)
-- List of specific issues found with severity
-- Any immediate concerns requiring attention
-- Brief explanation of what the readings mean
+Provide a DETAILED report including:
+- Overall health status (Excellent/Good/Fair/Poor/Critical) with justification
+- Section-by-section analysis of each category
+- Specific values that are concerning with severity (Normal/Warning/Critical)
+- Component aging insights and predicted maintenance needs
+- Anomalies in rate_of_change or signal_consistency
+- CAN bus errors, fault codes, sensor dropouts
+- Actionable recommendations prioritized by urgency
 
-Be concise but informative. Focus on actionable insights."""
+Be thorough and detailed. Reference specific sensor values and explain their significance."""
 )
 
 
@@ -77,40 +83,56 @@ Be concise but informative. Focus on actionable insights."""
 async def get_vehicle_sensor_data(ctx: RunContext[VehicleContext]) -> Dict[str, Any]:
     """
     Fetch all sensor data for the vehicle being diagnosed.
-    Returns complete sensor readings from the vehicle's onboard systems.
+    Returns complete sensor readings.
     """
     vehicle_data = ctx.deps.data_manager.get_vehicle_data(ctx.deps.vehicle_id)
     if not vehicle_data:
         return {"error": "Vehicle not found"}
     
-    return {
+    out = {
         "vehicle_id": vehicle_data.get("vehicle_id"),
         "car_type": vehicle_data.get("car_type"),
+        "timestamp_utc": vehicle_data.get("timestamp_utc"),
         "sensors": vehicle_data.get("available_sensor_fields", {})
     }
+    if vehicle_data.get("raw_sensor_categories"):
+        out["raw_sensor_categories"] = vehicle_data["raw_sensor_categories"]
+    return out
 
 
 @diagnostic_agent.tool
 async def check_dtc_codes(ctx: RunContext[VehicleContext]) -> Dict[str, Any]:
     """
-    Check for Diagnostic Trouble Codes (DTCs) in the vehicle.
-    DTCs are error codes generated by the vehicle's onboard diagnostics.
+    Check for Diagnostic Trouble Codes (DTCs) and fault codes in the vehicle.
     """
     vehicle_data = ctx.deps.data_manager.get_vehicle_data(ctx.deps.vehicle_id)
     if not vehicle_data:
-        return {"dtc_codes": []}
+        return {"dtc_codes": [], "fault_code_count": 0}
     
     sensors = vehicle_data.get("available_sensor_fields", {})
+    raw = vehicle_data.get("raw_sensor_categories", {})
     dtc_codes = sensors.get("dtc_codes", [])
     
-    # Common DTC code meanings
-    dtc_meanings = {
-        "P0420": "Catalyst system efficiency below threshold - catalytic converter may need replacement",
-        "P0301": "Cylinder 1 misfire detected - could be spark plug, fuel injector, or compression issue",
-        "P0171": "System too lean - possible vacuum leak or fuel delivery issue",
-        "P0300": "Random/multiple cylinder misfire - serious engine problem"
-    }
+    if raw and "electrical_ecu" in raw:
+        ecu = raw["electrical_ecu"]
+        fault_count = ecu.get("fault_code_active_count", 0)
+        can_errors = ecu.get("can_bus_error_count", 0)
+        dropouts = ecu.get("sensor_signal_dropouts", 0)
+        return {
+            "dtc_codes": dtc_codes,
+            "fault_code_active_count": fault_count,
+            "can_bus_error_count": can_errors,
+            "sensor_signal_dropouts": dropouts,
+            "electrical_ecu_status": "issues detected" if (fault_count or can_errors or dropouts) else "clean"
+        }
     
+    # Fallback for mock data if raw categories missing
+    dtc_meanings = {
+        "P0420": "Catalyst system efficiency below threshold",
+        "P0301": "Cylinder 1 misfire detected",
+        "P0171": "System too lean",
+        "P0300": "Random/multiple cylinder misfire"
+    }
     return {
         "dtc_codes": dtc_codes,
         "meanings": {code: dtc_meanings.get(code, "Unknown code") for code in dtc_codes}
@@ -118,46 +140,56 @@ async def check_dtc_codes(ctx: RunContext[VehicleContext]) -> Dict[str, Any]:
 
 
 # ============================================================================
-# MAINTENANCE AGENT - Provides maintenance recommendations and schedules
+# 2. MAINTENANCE AGENT
 # ============================================================================
 
 maintenance_agent = Agent(
-    gemini_model,
+    active_model,
     deps_type=VehicleContext,
-    system_prompt="""You are an expert automotive maintenance advisor AI.
+    system_prompt="""You are an expert automotive maintenance advisor AI for electric and hybrid vehicles.
 
-Your role is to analyze vehicle data and provide maintenance recommendations, schedules, and preventive care advice.
+Your role is to analyze vehicle data and provide DETAILED maintenance recommendations.
 
-When providing maintenance guidance, you should:
-1. Assess current component wear and condition based on sensor data
-2. Recommend maintenance tasks based on vehicle readings
-3. Prioritize maintenance by urgency (Immediate/Soon/Routine/Optional)
-4. Suggest preventive measures to avoid future problems
-5. Consider vehicle type and usage patterns
+Use ALL available data categories for a thorough assessment:
 
-Common Maintenance Indicators:
-- Low oil pressure → Check oil level, potential oil change needed
-- High engine/coolant temp → Check coolant level, radiator, thermostat
-- Low tire pressure → Inspect tires, check for leaks, inflate to proper PSI
-- Low battery voltage → Battery may need charging or replacement
-- Low brake fluid → Brake system inspection needed
-- High brake temps → Brake pad wear, check brake system
-- DTC codes present → Diagnostic scan and repair needed
-- Low fuel → Refueling needed
+**Battery System:**
+- battery_soh_pct, capacity_fade, charging_cycles, thermal_cycles, high_stress_cycles
+- internal_resistance_growth, cell voltage spread
+- Recommend battery health checks, balancing, cooling inspection
 
-Maintenance Categories:
-- IMMEDIATE: Safety critical, address within 24 hours
-- SOON: Important, schedule within 1-2 weeks
-- ROUTINE: Regular maintenance, schedule within 1 month
-- PREVENTIVE: Good practice, can be done at next service
+**Brake System:**
+- brake_pad_wear_level_pct, brake_disc_temperature_c, hydraulic_brake_pressure
+- ABS activation frequency
+- Recommend pad replacement, disc inspection, fluid flush
 
-Always provide:
-- Prioritized list of recommended maintenance tasks
-- Estimated urgency and importance
-- Preventive tips to maintain vehicle health
-- Cost estimates when relevant (low/medium/high)
+**Motor & Inverter:**
+- inverter_temperature, motor_efficiency_loss_pct
+- Recommend coolant service, thermal paste, bearing inspection
 
-Be practical and help the user maintain their vehicle properly."""
+**Electrical/ECU:**
+- fault_code_active_count, can_bus_error_count, sensor_signal_dropouts
+- ECU temperature, 12V battery voltage
+- Recommend software updates, connector checks, battery replacement
+
+**Chassis & Suspension:**
+- suspension_travel, chassis_stress_index
+- Recommend alignment, bushing inspection, strut/shock checks
+
+**Component Aging:**
+- Use battery_capacity_fade, motor_efficiency_loss to predict upcoming maintenance
+
+**Operational Context:**
+- driving_mode, regen_mode, time_since_last_charge
+- Adjust recommendations based on usage patterns
+
+Provide a DETAILED maintenance report:
+1. IMMEDIATE (within 24–48 hours) – safety-critical items
+2. SOON (1–2 weeks) – important but not urgent
+3. ROUTINE (1 month) – regular service items
+4. PREVENTIVE (next service) – good-practice items
+
+For each item: specific task, reason, estimated cost (low/medium/high), and interval.
+Be thorough and reference specific sensor values."""
 )
 
 
@@ -165,104 +197,123 @@ Be practical and help the user maintain their vehicle properly."""
 async def get_vehicle_sensor_data(ctx: RunContext[VehicleContext]) -> Dict[str, Any]:
     """
     Fetch all sensor data for maintenance analysis.
-    Returns complete sensor readings to assess maintenance needs.
     """
     vehicle_data = ctx.deps.data_manager.get_vehicle_data(ctx.deps.vehicle_id)
     if not vehicle_data:
         return {"error": "Vehicle not found"}
     
-    return {
+    out = {
         "vehicle_id": vehicle_data.get("vehicle_id"),
         "car_type": vehicle_data.get("car_type"),
+        "timestamp_utc": vehicle_data.get("timestamp_utc"),
         "sensors": vehicle_data.get("available_sensor_fields", {})
     }
+    if vehicle_data.get("raw_sensor_categories"):
+        out["raw_sensor_categories"] = vehicle_data["raw_sensor_categories"]
+    return out
 
 
 @maintenance_agent.tool
 async def check_fluid_levels(ctx: RunContext[VehicleContext]) -> Dict[str, str]:
     """
-    Check all fluid levels in the vehicle (oil, coolant, brake fluid, fuel).
-    Returns status of each fluid: normal/low/critical.
+    Check fluid/systems status: oil, coolant, brake fluid, fuel, battery coolant.
     """
     sensors = ctx.deps.data_manager.get_sensor_data(ctx.deps.vehicle_id)
-    
+    raw = ctx.deps.data_manager.get_raw_categories(ctx.deps.vehicle_id)
     fluid_status = {}
     
-    # Check fuel level
     if "fuel_level_percent" in sensors:
         fuel = sensors["fuel_level_percent"]
-        if fuel < 10:
-            fluid_status["fuel"] = "critical - refuel immediately"
-        elif fuel < 25:
-            fluid_status["fuel"] = "low - refuel soon"
-        else:
-            fluid_status["fuel"] = "normal"
+        if isinstance(fuel, (int, float)):
+            fluid_status["fuel"] = "critical - refuel immediately" if fuel < 10 else ("low - refuel soon" if fuel < 25 else "normal")
     
-    # Check brake fluid
     if "brake_fluid_level_percent" in sensors:
         brake = sensors["brake_fluid_level_percent"]
-        if brake < 50:
-            fluid_status["brake_fluid"] = "critical - safety issue"
-        elif brake < 70:
-            fluid_status["brake_fluid"] = "low - top up recommended"
-        else:
-            fluid_status["brake_fluid"] = "normal"
+        if isinstance(brake, (int, float)):
+            fluid_status["brake_fluid"] = "critical - safety issue" if brake < 50 else ("low - top up" if brake < 70 else "normal")
     
-    # Check oil pressure (indirect indicator)
     if "oil_pressure_kpa" in sensors:
         oil = sensors["oil_pressure_kpa"]
-        if oil < 150:
-            fluid_status["oil"] = "critical - low pressure"
-        elif oil < 200:
-            fluid_status["oil"] = "low - check oil level"
-        else:
-            fluid_status["oil"] = "normal"
+        if isinstance(oil, (int, float)):
+            fluid_status["oil"] = "critical - low pressure" if oil < 150 else ("low - check level" if oil < 200 else "normal")
+    
+    if raw and "brake_sensors" in raw:
+        b = raw["brake_sensors"]
+        hydraulic = b.get("hydraulic_brake_pressure_bar")
+        if isinstance(hydraulic, (int, float)):
+            fluid_status["brake_hydraulic_pressure"] = "normal" if 50 < hydraulic < 150 else ("warning" if hydraulic < 50 or hydraulic > 180 else "check")
+    
+    if raw and "battery_sensors" in raw:
+        soc = raw["battery_sensors"].get("battery_soc_pct")
+        soh = raw["battery_sensors"].get("battery_soh_pct")
+        if isinstance(soc, (int, float)):
+            fluid_status["battery_soc"] = "critical" if soc < 10 else ("low" if soc < 20 else "normal")
+        if isinstance(soh, (int, float)):
+            fluid_status["battery_soh"] = "degraded" if soh < 80 else "healthy"
     
     return fluid_status
 
 
 # ============================================================================
-# PERFORMANCE AGENT - Analyzes vehicle performance and efficiency
+# 3. PERFORMANCE AGENT
 # ============================================================================
 
 performance_agent = Agent(
-    gemini_model,
+    active_model,
     deps_type=VehicleContext,
-    system_prompt="""You are an expert automotive performance analyst AI.
+    system_prompt="""You are an expert automotive performance analyst AI for electric and hybrid vehicles.
 
-Your role is to analyze vehicle performance metrics, efficiency, and driving behavior.
+Your role is to analyze performance metrics and provide a DETAILED performance report.
 
-When analyzing performance, you should:
-1. Evaluate engine/motor performance metrics
-2. Assess fuel/energy efficiency
-3. Check for performance degradation or issues
-4. Identify optimization opportunities
-5. Compare current performance to expected ranges
+Use ALL available data categories:
 
-Performance Metrics to Analyze:
-- RPM vs Speed correlation (gear efficiency)
-- Engine temperature under load
-- Battery state of charge (for EVs/hybrids)
-- Fuel consumption patterns
-- Motor/inverter temperatures (for EVs)
-- Brake temperatures (performance driving)
-- Acceleration and power delivery
+**Vehicle Motion:**
+- vehicle_speed_kmph, avg_speed_per_trip, max_speed_per_trip, speed_variance
+- distance_travelled_km, odometer_km, driving_time, stop_duration
+- speed_stability_score – interpret for driving smoothness
 
-Vehicle Type Considerations:
-- Petrol/Diesel: Focus on RPM, fuel efficiency, engine temps
-- Electric: Focus on battery SOC, motor temps, regen efficiency
-- Hybrid: Balance between engine and electric performance
-- Sports cars: Performance metrics, brake temps, high RPM operation
-- Trucks: Load capacity, torque delivery, durability
+**Idle Usage:**
+- idling_time_min, idle_frequency, idle_to_drive_ratio
+- engine_on/off, motor_on/off duration
+- Identify excessive idling and efficiency impact
 
-Always provide:
-- Overall performance rating (Excellent/Good/Average/Below Average/Poor)
-- Specific performance strengths
-- Areas for improvement
-- Efficiency recommendations
-- Driving behavior insights if applicable
+**Energy Usage:**
+- energy_consumption_kwh_per_km, regen_braking_contribution_pct
+- idle_energy_wastage_kwh, driving_efficiency_score
+- efficiency_degradation_trend – positive/negative trend analysis
 
-Be analytical but practical in your recommendations."""
+**Battery & Motor:**
+- battery_soc, pack voltage/current, motor_rpm, motor_torque_nm
+- inverter_temperature
+- Assess power delivery and thermal management
+
+**Brake System:**
+- brake_disc_temperature, wheel speeds, ABS activation
+- Evaluate braking behavior and regen contribution
+
+**Chassis:**
+- steering, yaw/pitch/roll rates, suspension travel, chassis_stress_index
+- Assess handling and load distribution
+
+**Rate of Change & Signal Consistency:**
+- battery_temp_rise_rate, voltage_drop_rate, current_spike_frequency
+- speed_sensor_disagreement, gps_vs_wheel_speed_delta
+- Identify anomalies affecting performance
+
+**Operational Context:**
+- driving_mode (ECO/SPORT/etc), regen_mode
+- vehicle_load, passenger_count, ac_usage_level
+- charging_recently, time_since_last_charge
+
+Provide a DETAILED performance report:
+1. Overall performance rating with justification
+2. Efficiency analysis (energy, regen, idle wastage)
+3. Driving behavior insights (stability, braking, smoothness)
+4. Component stress and degradation trends
+5. Optimization recommendations (driving style, charging, mode selection)
+6. Comparison to ideal benchmarks where applicable
+
+Be analytical and reference specific sensor values."""
 )
 
 
@@ -270,79 +321,78 @@ Be analytical but practical in your recommendations."""
 async def get_vehicle_sensor_data(ctx: RunContext[VehicleContext]) -> Dict[str, Any]:
     """
     Fetch all sensor data for performance analysis.
-    Returns complete sensor readings and vehicle specifications.
     """
     vehicle_data = ctx.deps.data_manager.get_vehicle_data(ctx.deps.vehicle_id)
     if not vehicle_data:
         return {"error": "Vehicle not found"}
     
-    return {
+    out = {
         "vehicle_id": vehicle_data.get("vehicle_id"),
         "car_type": vehicle_data.get("car_type"),
+        "timestamp_utc": vehicle_data.get("timestamp_utc"),
         "sensors": vehicle_data.get("available_sensor_fields", {})
     }
+    if vehicle_data.get("raw_sensor_categories"):
+        out["raw_sensor_categories"] = vehicle_data["raw_sensor_categories"]
+    return out
 
 
 @performance_agent.tool
 async def calculate_efficiency_metrics(ctx: RunContext[VehicleContext]) -> Dict[str, Any]:
     """
-    Calculate various efficiency metrics based on current sensor data.
-    Returns fuel/energy efficiency, thermal efficiency, and performance ratios.
+    Calculate efficiency metrics.
     """
     sensors = ctx.deps.data_manager.get_sensor_data(ctx.deps.vehicle_id)
-    vehicle_type = ctx.deps.data_manager.get_vehicle_type(ctx.deps.vehicle_id)
-    
+    raw = ctx.deps.data_manager.get_raw_categories(ctx.deps.vehicle_id)
     metrics = {}
     
-    # RPM to Speed ratio (indicates gear efficiency)
+    if raw:
+        eu = raw.get("energy_usage", {})
+        iu = raw.get("idle_usage", {})
+        bs = raw.get("battery_sensors", {})
+        vm = raw.get("vehicle_motion", {})
+        if eu:
+            metrics["energy_consumption_kwh_per_km"] = eu.get("energy_consumption_kwh_per_km")
+            metrics["driving_efficiency_score"] = eu.get("driving_efficiency_score")
+            metrics["regen_braking_contribution_pct"] = eu.get("regen_braking_contribution_pct")
+            metrics["idle_energy_wastage_kwh"] = eu.get("idle_energy_wastage_kwh")
+            metrics["efficiency_degradation_trend"] = eu.get("efficiency_degradation_trend")
+        if iu:
+            metrics["idle_to_drive_ratio"] = iu.get("idle_to_drive_ratio")
+            metrics["idling_time_min"] = iu.get("idling_time_min")
+        if bs:
+            metrics["battery_soc_pct"] = bs.get("battery_soc_pct")
+            metrics["battery_soh_pct"] = bs.get("battery_soh_pct")
+        if vm:
+            metrics["speed_stability_score"] = vm.get("speed_stability_score")
+            metrics["avg_speed_per_trip_kmph"] = vm.get("avg_speed_per_trip_kmph")
+    
     if "rpm" in sensors and "speed_kmph" in sensors:
-        rpm = sensors["rpm"]
-        speed = sensors["speed_kmph"]
-        if speed > 0:
+        rpm, speed = sensors["rpm"], sensors["speed_kmph"]
+        if isinstance(rpm, (int, float)) and isinstance(speed, (int, float)) and speed > 0:
             metrics["rpm_per_kmph"] = round(rpm / speed, 2)
-            if rpm / speed > 100:
-                metrics["gear_efficiency"] = "low gear - high RPM for speed"
-            elif rpm / speed < 30:
-                metrics["gear_efficiency"] = "high gear - efficient cruising"
-            else:
-                metrics["gear_efficiency"] = "normal"
-        elif rpm > 1200:
-            metrics["idle_status"] = "high idle - possible issue"
-        else:
-            metrics["idle_status"] = "normal idle"
     
-    # Battery efficiency (for EVs)
-    if "battery_soc" in sensors and "speed_kmph" in sensors:
-        soc = sensors["battery_soc"]
-        speed = sensors["speed_kmph"]
-        metrics["battery_level"] = f"{soc}%"
-        if soc < 20:
-            metrics["range_concern"] = "low battery - charge soon"
+    if "battery_soc" in sensors or "battery_sensors_battery_soc_pct" in sensors:
+        soc = sensors.get("battery_soc") or sensors.get("battery_sensors_battery_soc_pct")
+        if isinstance(soc, (int, float)):
+            metrics["battery_level"] = f"{soc}%"
+            if soc < 20:
+                metrics["range_concern"] = "low battery - charge soon"
     
-    # Thermal efficiency
-    if "engine_temp_c" in sensors:
-        temp = sensors["engine_temp_c"]
-        if 85 <= temp <= 95:
-            metrics["thermal_efficiency"] = "optimal operating temperature"
-        elif temp < 85:
-            metrics["thermal_efficiency"] = "engine not fully warmed up"
-        else:
-            metrics["thermal_efficiency"] = "running hot - check cooling system"
-    
-    # Fuel status
-    if "fuel_level_percent" in sensors:
-        fuel = sensors["fuel_level_percent"]
-        metrics["fuel_level"] = f"{fuel}%"
+    if "engine_temp_c" in sensors or "motor_inverter_sensors_inverter_temperature_c" in sensors:
+        temp = sensors.get("engine_temp_c") or sensors.get("motor_inverter_sensors_inverter_temperature_c")
+        if isinstance(temp, (int, float)):
+            metrics["thermal_status"] = "optimal" if 80 <= temp <= 95 else ("cool" if temp < 80 else "running hot")
     
     return metrics
 
 
 # ============================================================================
-# MASTER AGENT - Routes queries to appropriate specialized agents
+# 4. MASTER AGENT & ROUTING
 # ============================================================================
 
 master_agent = Agent(
-    gemini_model,
+    active_model,
     system_prompt="""You are the master vehicle analysis coordinator AI.
 
 Your role is to understand user queries about their vehicle and route them to the appropriate specialist:
@@ -373,29 +423,13 @@ Analyze the user's query and respond with ONLY ONE of these exact words:
 - "maintenance"
 - "performance"
 
-If the query is unclear or could apply to multiple agents, choose the most relevant one.
-
-Examples:
-- "Is my car healthy?" → diagnostic
-- "Check engine light is on" → diagnostic
-- "When should I change oil?" → maintenance
-- "How's my fuel efficiency?" → performance
-- "Any problems with my vehicle?" → diagnostic
-- "What maintenance is needed?" → maintenance"""
+If the query is unclear or could apply to multiple agents, choose the most relevant one."""
 )
 
 
 async def route_query(query: str, vehicle_id: str, data_manager: VehicleDataManager) -> Dict[str, Any]:
     """
     Route user query to appropriate agent and get response.
-    
-    Args:
-        query: User's question about their vehicle
-        vehicle_id: Vehicle identifier
-        data_manager: VehicleDataManager instance
-    
-    Returns:
-        Dictionary with agent type and response
     """
     # First, use master agent to determine routing
     routing_result = await master_agent.run(query)
@@ -452,6 +486,9 @@ async def route_query(query: str, vehicle_id: str, data_manager: VehicleDataMana
 
 
 async def get_comprehensive_analysis(vehicle_id: str, data_manager: VehicleDataManager) -> Dict[str, Any]:
+    """
+    Runs all agents in parallel for a full report.
+    """
     context = VehicleContext(vehicle_id=vehicle_id, data_manager=data_manager)
 
     try:
@@ -470,25 +507,18 @@ async def get_comprehensive_analysis(vehicle_id: str, data_manager: VehicleDataM
             deps=context
         )
 
+        # Run all concurrently
         diagnostic_result, maintenance_result, performance_result = await asyncio.gather(
             diagnostic_task,
             maintenance_task,
             performance_task,
-            return_exceptions=True  # 🔥 prevents full crash
+            return_exceptions=True 
         )
 
         def safe_data(result, name):
             if isinstance(result, Exception):
-                return {
-            "status": "failed",
-            "agent": name,
-            "error": repr(result)
-        }
-                return f"{name} analysis failed"
-            return {
-        "status": "success",
-        "output": result.data
-    }
+                return {"status": "failed", "agent": name, "error": repr(result)}
+            return {"status": "success", "output": result.data}
 
         return {
             "vehicle_id": vehicle_id,
@@ -500,4 +530,3 @@ async def get_comprehensive_analysis(vehicle_id: str, data_manager: VehicleDataM
     except Exception as e:
         print("[FATAL ANALYSIS ERROR]", repr(e))
         raise
-

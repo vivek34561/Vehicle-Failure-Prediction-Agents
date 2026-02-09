@@ -1,0 +1,7 @@
+fastapi: OK
+uvicorn: OK
+pydantic: OK
+pydantic_ai: OK
+griffe: OK
+google.generativeai: OK
+dotenv: OK
