@@ -11,7 +11,7 @@ if not groq_key:
     print("GROQ_API_KEY not set in environment.")
     raise SystemExit(1)
 
-url = "https://api.groq.com/openai/v1/responses"
+url = "https://api.groq.com/openai/v1/chat/completions"
 headers = {
     "Authorization": f"Bearer {groq_key}",
     "Content-Type": "application/json",
@@ -19,8 +19,8 @@ headers = {
 }
 payload = {
     "model": "openai/gpt-oss-20b",
-    "input": "Explain the importance of fast language models",
-    "max_output_tokens": 512,
+    "messages": [{"role": "user", "content": "Explain the importance of fast language models"}],
+    "max_tokens": 512,
 }
 
 resp = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -31,19 +31,15 @@ except Exception as e:
     print(f"Request failed: {e} - {resp.text}")
     raise
 
-# Extract text from several possible response shapes
+# Extract text from OpenAI-compatible response format
 out = None
 if isinstance(data, dict):
-    out = data.get("output_text")
-    if not out and "output" in data:
-        parts = []
-        for item in data.get("output", []):
-            for c in item.get("content", []):
-                text = c.get("text") or c.get("body") or c.get("content")
-                if isinstance(text, str):
-                    parts.append(text)
-        if parts:
-            out = "".join(parts)
+    try:
+        if "choices" in data and len(data["choices"]) > 0:
+            msg = data["choices"][0].get("message", {})
+            out = msg.get("content")
+    except Exception:
+        pass
 
 if not out:
     out = json.dumps(data, indent=2, default=str)

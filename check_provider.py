@@ -22,8 +22,8 @@ def check_groq():
         return False
 
     try:
-        # Direct HTTP call to Groq's OpenAI-compatible Responses endpoint
-        url = f"{GROQ_BASE}/responses"
+        # Direct HTTP call to Groq's OpenAI-compatible chat completions endpoint
+        url = f"{GROQ_BASE}/chat/completions"
         headers = {
             "Authorization": f"Bearer {groq_key}",
             "Content-Type": "application/json",
@@ -31,30 +31,23 @@ def check_groq():
         }
         payload = {
             "model": "openai/gpt-oss-20b",
-            "input": "Test",
-            "max_output_tokens": 256
+            "messages": [{"role": "user", "content": "Test"}],
+            "max_tokens": 256
         }
 
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
         resp.raise_for_status()
         data = resp.json()
 
-        # Try several common places for response text
+        # Try to extract response text from OpenAI-compatible response
         out = None
         if isinstance(data, dict):
-            out = data.get("output_text")
-            if not out and "output" in data:
-                try:
-                    parts = []
-                    for item in data.get("output", []):
-                        for c in item.get("content", []):
-                            text = c.get("text") or c.get("body") or c.get("content")
-                            if isinstance(text, str):
-                                parts.append(text)
-                    if parts:
-                        out = "".join(parts)
-                except Exception:
-                    out = None
+            try:
+                if "choices" in data and len(data["choices"]) > 0:
+                    msg = data["choices"][0].get("message", {})
+                    out = msg.get("content")
+            except Exception:
+                pass
 
         if out:
             print("Groq response text:", out)
