@@ -23,16 +23,16 @@ load_dotenv()
 # MODEL CONFIGURATION
 # ============================================================================
 
-# STRICTLY using the API key provided
-FIXED_API_KEY = "ff79bbc8103b418ca138a15734256bab.cf3FccbTvaGzs4PXIz8AHblp"
+# Configuration for the AI Model — use Groq exclusively
+# The `openai` client library is used to talk to Groq's OpenAI-compatible API.
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_BASE = "https://api.groq.com/openai/v1"
 
-# Configuration for the AI Model
-# Note: We use the OpenRouter endpoint because 'x-ai/grok-3-mini' is a cloud model
-# that cannot run on local Ollama.
+# Use Groq model. pydantic_ai's OpenAIModel can point at Groq's OpenAI-compatible endpoint.
 active_model = OpenAIModel(
-    model_name="x-ai/grok-3-mini",
-    base_url="https://openrouter.ai/api/v1",
-    api_key=FIXED_API_KEY
+    model_name="openai/gpt-oss-20b",
+    base_url=GROQ_BASE,
+    api_key=GROQ_API_KEY or ""
 )
 
 @dataclass

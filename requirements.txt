@@ -5,3 +5,5 @@ pydantic-ai==0.0.14
 griffe==1.5.1
 google-generativeai==0.8.3
 python-dotenv==1.0.1
+openai>=1.0.0
+requests>=2.0.0

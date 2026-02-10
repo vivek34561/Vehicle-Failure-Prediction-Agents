@@ -1,29 +1,23 @@
 
-import asyncio
+from dotenv import load_dotenv
+from openai import OpenAI
 import os
-from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
 
-# Copying config from agents_final.py
-FIXED_API_KEY = "ff79bbc8103b418ca138a15734256bab.cf3FccbTvaGzs4PXIz8AHblp"
+load_dotenv()
 
-model = OpenAIModel(
-    model_name="x-ai/grok-3-mini",
-    base_url="https://openrouter.ai/api/v1",
-    api_key=FIXED_API_KEY
+client = OpenAI(
+    api_key=os.environ.get("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1",
 )
 
-agent = Agent(model, system_prompt="You are a helpful assistant.")
+response = client.responses.create(
+    input="Explain the importance of fast language models",
+    model="openai/gpt-oss-20b",
+    max_output_tokens=512
+)
 
-async def main():
-    print(f"Testing model {model.model_name} with base_url {model.base_url}")
-    print(f"Key (first 5 chars): {FIXED_API_KEY[:5]}...")
-    try:
-        result = await agent.run("Hello, are you working?")
-        print("Success!")
-        print(result.data)
-    except Exception as e:
-        print(f"Error: {e}")
+out = getattr(response, "output_text", None)
+if not out and isinstance(response, dict):
+    out = response.get("output_text") or str(response)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+print(out)

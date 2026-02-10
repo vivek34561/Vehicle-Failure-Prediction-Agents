@@ -271,12 +271,11 @@ async def get_vehicle_history(vehicle_id: str, limit: int = 10):
 
 if __name__ == "__main__":
     import uvicorn
-    
-    # Check for Gemini API key
-    if not os.getenv("GEMINI_API_KEY"):
-        print("WARNING: GEMINI_API_KEY environment variable not set!")
-        print("Please set it with: export GEMINI_API_KEY='your-api-key'")
-    
+    # Check for recommended API keys
+    if not (os.getenv("GROQ_API_KEY") or os.getenv("OPENROUTER_API_KEY") or os.getenv("GEMINI_API_KEY")):
+        print("WARNING: No model API key detected. Set GROQ_API_KEY or OPENROUTER_API_KEY in your .env for production.")
+        print("Create a local .env from .env.sample and restart the app.")
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
