@@ -10,14 +10,54 @@ from datetime import datetime
 import threading
 import asyncio
 from collections import deque
+import sys
+import traceback
 
-from agents_final import route_query, get_comprehensive_analysis
-from utils import VehicleDataManager, AnalysisLogger
-from fetch import load_packets, convert_decimal, normalize_packet
-from predefined_Rules import ruleGate, load_manufacturing_database
-
-# Detect if running in serverless environment
+# Detect if running in serverless environment FIRST
 IS_SERVERLESS = os.getenv("VERCEL") == "1" or os.getenv("AWS_LAMBDA_FUNCTION_NAME") is not None
+
+print(f"[INIT] Starting application (Serverless: {IS_SERVERLESS})")
+print(f"[INIT] Python: {sys.version}")
+print(f"[INIT] Working dir: {os.getcwd()}")
+
+# Import with error handling
+route_query = None
+get_comprehensive_analysis = None
+VehicleDataManager = None
+AnalysisLogger = None
+load_packets = None
+convert_decimal = None
+normalize_packet = None
+ruleGate = None
+load_manufacturing_database = None
+
+try:
+    from agents_final import route_query, get_comprehensive_analysis
+    print("[INIT] ✓ agents_final imported")
+except Exception as e:
+    print(f"[INIT] ✗ Failed to import agents_final: {e}")
+    traceback.print_exc()
+
+try:
+    from utils import VehicleDataManager, AnalysisLogger
+    print("[INIT] ✓ utils imported")
+except Exception as e:
+    print(f"[INIT] ✗ Failed to import utils: {e}")
+    traceback.print_exc()
+
+try:
+    from fetch import load_packets, convert_decimal, normalize_packet
+    print("[INIT] ✓ fetch imported")
+except Exception as e:
+    print(f"[INIT] ✗ Failed to import fetch: {e}")
+    traceback.print_exc()
+
+try:
+    from predefined_Rules import ruleGate, load_manufacturing_database
+    print("[INIT] ✓ predefined_Rules imported")
+except Exception as e:
+    print(f"[INIT] ✗ Failed to import predefined_Rules: {e}")
+    traceback.print_exc()
 
 # Data source: newData.json (rich telemetry)
 # Use absolute path to handle any working directory
@@ -40,13 +80,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize managers
-data_manager = VehicleDataManager(db_path=DATASET_PATH)
-logger = AnalysisLogger()
-
-# Create logs directory
+# Initialize managers (with error handling)
+data_manager = None
+logger = None
 LOGS_DIR = os.path.join(SCRIPT_DIR, "logs")
-os.makedirs(LOGS_DIR, exist_ok=True)
+
+try:
+    if VehicleDataManager:
+        data_manager = VehicleDataManager(db_path=DATASET_PATH)
+        print("[INIT] ✓ VehicleDataManager initialized")
+except Exception as e:
+    print(f"[INIT] ✗ Failed to initialize VehicleDataManager: {e}")
+    # Continue without crashing
+
+try:
+    if AnalysisLogger:
+        logger = AnalysisLogger()
+        print("[INIT] ✓ AnalysisLogger initialized")
+except Exception as e:
+    print(f"[INIT] ✗ Failed to initialize AnalysisLogger: {e}")
+
+# Create logs directory (non-fatal)
+try:
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    print("[INIT] ✓ Logs directory ready")
+except Exception as e:
+    print(f"[INIT] ✗ Could not create logs directory: {e}")
 
 # ============================================================================
 # Logging Functions
@@ -299,29 +358,38 @@ class VehicleListResponse(BaseModel):
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
-    return {
-        "message": "Vehicle Analysis & Maintenance System API",
-        "version": "1.0.0",
-        "dataset": DATASET_PATH,
-        "mode": "continuous-streaming",
-        "status": data_load_status,
-        "message": data_load_message,
-        "stream_active": stream_active,
-        "packets_processed": current_packet_index,
-        "anomalies_detected": len(anomalies_detected),
-        "latest_analysis": latest_analysis,
-        "logs_directory": LOGS_DIR,
-        "note": "Data streams continuously. Anomaly analyses saved to logs/",
-        "endpoints": {
-            "POST /query": "Ask about vehicle based on streaming data",
-            "POST /analyze": "Get comprehensive analysis",
-            "GET /health": "API health check",
-            "GET /buffer-stats": "Get current buffer statistics",
-            "GET /anomalies": "Get all detected anomalies",
-            "GET /analysis/{anomaly_id}": "Get full analysis report for specific anomaly",
-            "GET /anomalies-summary": "Get summary of all anomalies"
+    try:
+        return {
+            "message": "Vehicle Analysis & Maintenance System API",
+            "version": "1.0.0",
+            "status": "running",
+            "dataset": DATASET_PATH,
+            "mode": "serverless" if IS_SERVERLESS else "continuous-streaming",
+            "data_load_status": data_load_status,
+            "stream_active": stream_active,
+            "packets_processed": current_packet_index,
+            "anomalies_detected": len(anomalies_detected),
+            "components": {
+                "data_manager": data_manager is not None,
+                "logger": logger is not None,
+                "route_query": route_query is not None,
+                "analysis": get_comprehensive_analysis is not None
+            },
+            "endpoints": {
+                "GET /health": "API health check",
+                "GET /api-status": "Detailed diagnostic info",
+                "POST /query": "Ask about vehicle based on streaming data",
+                "POST /analyze": "Get comprehensive analysis",
+                "GET /vehicles": "List all vehicles"
+            }
         }
-    }
+    except Exception as e:
+        return {
+            "message": "API Running (Limited)",
+            "status": "partial",
+            "error": str(e),
+            "version": "1.0.0"
+        }
 
 
 @app.get("/buffer-stats")
@@ -342,40 +410,72 @@ async def buffer_statistics():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "stream_active": stream_active,
-        "packets_loaded": len(processed_packets),
-        "packets_processed": current_packet_index,
-        "buffer_size": len(rolling_buffer),
-        "anomalies_detected": len(anomalies_detected),
-        "latest_analysis_time": latest_analysis.get("timestamp") if latest_analysis else None
-    }
+    """Health check endpoint - always returns 200 if function is running"""
+    try:
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "serverless": IS_SERVERLESS,
+            "components_loaded": {
+                "data_manager": data_manager is not None,
+                "logger": logger is not None,
+                "agents": route_query is not None
+            }
+        }
+    except Exception as e:
+        return {
+            "status": "degraded",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 
 @app.get("/api-status")
 async def api_status():
     """Diagnostic endpoint for deployment verification"""
     import sys
-    return {
-        "status": "running",
-        "environment": "serverless" if IS_SERVERLESS else "local",
-        "python_version": sys.version,
-        "api_keys_configured": {
-            "GROQ_API_KEY": bool(os.getenv("GROQ_API_KEY")),
-            "OPENROUTER_API_KEY": bool(os.getenv("OPENROUTER_API_KEY")),
-            "GEMINI_API_KEY": bool(os.getenv("GEMINI_API_KEY"))
-        },
-        "data_load_status": data_load_status,
-        "data_path": DATASET_PATH,
-        "data_path_exists": os.path.exists(DATASET_PATH) if not IS_SERVERLESS else "N/A (serverless)",
-        "working_directory": os.getcwd(),
-        "script_directory": SCRIPT_DIR,
-        "streaming_mode": "disabled" if IS_SERVERLESS else "enabled",
-        "timestamp": datetime.now().isoformat()
-    }
+    try:
+        files_in_root = []
+        try:
+            files_in_root = os.listdir(SCRIPT_DIR)[:20]
+        except:
+            files_in_root = ["Unable to list files"]
+        
+        return {
+            "status": "running",
+            "environment": "serverless" if IS_SERVERLESS else "local",
+            "python_version": sys.version.split()[0],
+            "components": {
+                "fastapi": True,
+                "data_manager": data_manager is not None,
+                "logger": logger is not None,
+                "route_query": route_query is not None,
+                "get_comprehensive_analysis": get_comprehensive_analysis is not None,
+                "load_packets": load_packets is not None,
+                "ruleGate": ruleGate is not None
+            },
+            "api_keys_configured": {
+                "GROQ_API_KEY": bool(os.getenv("GROQ_API_KEY")),
+                "OPENROUTER_API_KEY": bool(os.getenv("OPENROUTER_API_KEY")),
+                "GEMINI_API_KEY": bool(os.getenv("GEMINI_API_KEY"))
+            },
+            "paths": {
+                "working_directory": os.getcwd(),
+                "script_directory": SCRIPT_DIR,
+                "dataset_path": DATASET_PATH,
+                "dataset_exists": os.path.exists(DATASET_PATH),
+                "logs_directory": LOGS_DIR
+            },
+            "files_in_root": files_in_root,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "timestamp": datetime.now().isoformat()
+        }
 
 
 @app.get("/vehicles", response_model=VehicleListResponse)
@@ -385,6 +485,12 @@ async def list_vehicles():
     
     Returns list of vehicle IDs that can be queried.
     """
+    if not data_manager:
+        raise HTTPException(
+            status_code=503,
+            detail="Data manager not initialized. Check /api-status for details."
+        )
+    
     vehicle_ids = data_manager.get_vehicle_ids()
     return {
         "vehicles": vehicle_ids,
@@ -402,6 +508,12 @@ async def get_vehicle_data(vehicle_id: str):
     
     Returns vehicle data including type and all sensor readings.
     """
+    if not data_manager:
+        raise HTTPException(
+            status_code=503,
+            detail="Data manager not initialized. Check /api-status for details."
+        )
+    
     vehicle_data = data_manager.get_vehicle_data(vehicle_id)
     
     if not vehicle_data:
@@ -432,8 +544,21 @@ async def query_vehicle(request: QueryRequest):
     - "How's my fuel efficiency?"
     - "What was the latest anomaly detected?"
     """
-    # Verify streaming is active
-    if not stream_active or not processed_packets:
+    # Check if required components are loaded
+    if not data_manager:
+        raise HTTPException(
+            status_code=503,
+            detail="Data manager not initialized. Check /api-status for details."
+        )
+    
+    if not route_query:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent system not initialized. Check /api-status for API key configuration."
+        )
+    
+    # Verify streaming is active (for non-serverless mode)
+    if not IS_SERVERLESS and (not stream_active or not processed_packets):
         raise HTTPException(
             status_code=503,
             detail="Data stream not active. Check /health for status."
@@ -465,17 +590,18 @@ async def query_vehicle(request: QueryRequest):
             analysis_context=analysis_context
         )
         
-        # Log the analysis
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "vehicle_id": request.vehicle_id,
-            "query": request.query,
-            "agent": result["agent"],
-            "response": result["response"],
-            "packets_in_buffer": len(rolling_buffer),
-            "anomalies_detected": len(anomalies_detected)
-        }
-        logger.save_analysis(log_entry)
+        # Log the analysis (if logger available)
+        if logger:
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "vehicle_id": request.vehicle_id,
+                "query": request.query,
+                "agent": result["agent"],
+                "response": result["response"],
+                "packets_in_buffer": len(rolling_buffer),
+                "anomalies_detected": len(anomalies_detected)
+            }
+            logger.save_analysis(log_entry)
         
         return {
             "vehicle_id": request.vehicle_id,
@@ -499,8 +625,21 @@ async def comprehensive_analysis(request: ComprehensiveAnalysisRequest):
     Uses data from the live rolling buffer.
     Runs all diagnostic, maintenance, and performance agents.
     """
-    # Verify streaming is active
-    if not stream_active or not processed_packets:
+    # Check if required components are loaded
+    if not data_manager:
+        raise HTTPException(
+            status_code=503,
+            detail="Data manager not initialized. Check /api-status for details."
+        )
+    
+    if not get_comprehensive_analysis:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent system not initialized. Check /api-status for API key configuration."
+        )
+    
+    # Verify streaming is active (for non-serverless mode)
+    if not IS_SERVERLESS and (not stream_active or not processed_packets):
         raise HTTPException(
             status_code=503,
             detail="Data stream not active. Check /health for status."
