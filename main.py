@@ -16,6 +16,9 @@ from utils import VehicleDataManager, AnalysisLogger
 from fetch import load_packets, convert_decimal, normalize_packet
 from predefined_Rules import ruleGate, load_manufacturing_database
 
+# Detect if running in serverless environment
+IS_SERVERLESS = os.getenv("VERCEL") == "1" or os.getenv("AWS_LAMBDA_FUNCTION_NAME") is not None
+
 # Data source: newData.json (rich telemetry)
 # Use absolute path to handle any working directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -102,8 +105,14 @@ latest_analysis = None
 
 
 def load_data_stream():
-    """Load packets once for streaming"""
+    """Load packets once for streaming (disabled in serverless mode)"""
     global processed_packets, data_load_status, data_load_message
+    
+    if IS_SERVERLESS:
+        print("[MAIN] Running in serverless mode - streaming disabled")
+        data_load_status = "serverless"
+        data_load_message = "Streaming disabled in serverless mode. Use request-based endpoints."
+        return False
     
     try:
         print("[MAIN] Loading packet data for streaming...")
@@ -343,6 +352,29 @@ async def health_check():
         "buffer_size": len(rolling_buffer),
         "anomalies_detected": len(anomalies_detected),
         "latest_analysis_time": latest_analysis.get("timestamp") if latest_analysis else None
+    }
+
+
+@app.get("/api-status")
+async def api_status():
+    """Diagnostic endpoint for deployment verification"""
+    import sys
+    return {
+        "status": "running",
+        "environment": "serverless" if IS_SERVERLESS else "local",
+        "python_version": sys.version,
+        "api_keys_configured": {
+            "GROQ_API_KEY": bool(os.getenv("GROQ_API_KEY")),
+            "OPENROUTER_API_KEY": bool(os.getenv("OPENROUTER_API_KEY")),
+            "GEMINI_API_KEY": bool(os.getenv("GEMINI_API_KEY"))
+        },
+        "data_load_status": data_load_status,
+        "data_path": DATASET_PATH,
+        "data_path_exists": os.path.exists(DATASET_PATH) if not IS_SERVERLESS else "N/A (serverless)",
+        "working_directory": os.getcwd(),
+        "script_directory": SCRIPT_DIR,
+        "streaming_mode": "disabled" if IS_SERVERLESS else "enabled",
+        "timestamp": datetime.now().isoformat()
     }
 
 
@@ -633,21 +665,36 @@ async def get_vehicle_history(vehicle_id: str, limit: int = 10):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize streaming on application startup"""
+    """Initialize streaming on application startup (serverless-safe)"""
     print("\n" + "="*70)
-    print("INITIALIZING VEHICLE ANALYSIS SYSTEM - STREAMING MODE")
+    print("INITIALIZING VEHICLE ANALYSIS SYSTEM")
     print("="*70)
     
-    # Load packets from file
-    if load_data_stream():
-        # Start background streaming worker
-        stream_thread = threading.Thread(target=packet_stream_worker, daemon=True)
-        stream_thread.start()
+    if IS_SERVERLESS:
+        print("[MAIN] Running in SERVERLESS mode")
+        print("[MAIN] Background streaming disabled - using request-based processing")
         print("="*70 + "\n")
-    else:
-        print("[MAIN] ERROR: Could not load data stream")
+        return
+    
+    print("[MAIN] Running in STREAMING mode")
+    # Load packets from file
+    try:
+        if load_data_stream():
+            # Start background streaming worker
+            stream_thread = threading.Thread(target=packet_stream_worker, daemon=True)
+            stream_thread.start()
+            print("="*70 + "\n")
+        else:
+            print("[MAIN] Could not load data stream - continuing with request-based mode")
+            print("="*70 + "\n")
+    except Exception as e:
+        print(f"[MAIN] Startup error (non-fatal): {e}")
+        print("[MAIN] Continuing with request-based mode")
         print("="*70 + "\n")
 
+
+# Export app for serverless deployment (Vercel, AWS Lambda, etc.)
+handler = app
 
 if __name__ == "__main__":
     import uvicorn

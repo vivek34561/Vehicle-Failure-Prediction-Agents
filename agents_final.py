@@ -56,11 +56,15 @@ class PerformanceResponse(BaseModel):
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_BASE = "https://api.groq.com/openai/v1"
 
+if not GROQ_API_KEY:
+    print("WARNING: GROQ_API_KEY not set. Agent functionality will be limited.")
+    print("Set GROQ_API_KEY environment variable for full functionality.")
+
 # Use Groq model. pydantic_ai's OpenAIModel can point at Groq's OpenAI-compatible endpoint.
 active_model = OpenAIModel(
     model_name="openai/gpt-oss-20b",
     base_url=GROQ_BASE,
-    api_key=GROQ_API_KEY or ""
+    api_key=GROQ_API_KEY or "dummy-key-for-startup"  # Dummy key to prevent startup crash
 )
 
 @dataclass
