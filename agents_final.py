@@ -47,25 +47,29 @@ class PerformanceResponse(BaseModel):
     repair_timeline: str = Field(description="Optimization timeline in days")
     failure_probability: str = Field(description="Complete performance failure probability")
 
+# In agents_final.py, around lines 50-67, change to:
+
 # ============================================================================
 # MODEL CONFIGURATION
 # ============================================================================
 
 # Configuration for the AI Model — use Groq exclusively
-# The `openai` client library is used to talk to Groq's OpenAI-compatible API.
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_BASE = "https://api.groq.com/openai/v1"
 
 if not GROQ_API_KEY:
-    print("WARNING: GROQ_API_KEY not set. Agent functionality will be limited.")
-    print("Set GROQ_API_KEY environment variable for full functionality.")
+    raise ValueError(
+        "GROQ_API_KEY environment variable is required. "
+        "Set it in your Vercel project settings: https://vercel.com/docs/environment-variables"
+    )
 
-# Use Groq model. pydantic_ai's OpenAIModel can point at Groq's OpenAI-compatible endpoint.
+# Use valid Groq model name
 active_model = OpenAIModel(
-    model_name="openai/gpt-oss-20b",
+    model_name="llama-3.3-70b-versatile",  # ✅ Valid Groq model
     base_url=GROQ_BASE,
-    api_key=GROQ_API_KEY or "dummy-key-for-startup"  # Dummy key to prevent startup crash
+    api_key=GROQ_API_KEY
 )
+
 
 @dataclass
 class VehicleContext:

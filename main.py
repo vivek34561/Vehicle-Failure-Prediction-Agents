@@ -324,6 +324,17 @@ async def root():
     }
 
 
+# In main.py startup_event function, add:
+@app.on_event("startup")
+async def startup_event():
+    print(f"[STARTUP] Environment: {'SERVERLESS' if IS_SERVERLESS else 'LOCAL'}")
+    print(f"[STARTUP] GROQ_API_KEY present: {bool(os.getenv('GROQ_API_KEY'))}")
+    print(f"[STARTUP] DATASET_PATH: {DATASET_PATH}")
+    print(f"[STARTUP] File exists: {os.path.exists(DATASET_PATH)}")
+    # ... rest of your startup code
+
+
+
 @app.get("/buffer-stats")
 async def buffer_statistics():
     """Get current streaming buffer statistics"""
