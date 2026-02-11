@@ -4,8 +4,9 @@ Filename: agents_final.py
 """
 import os
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+from pydantic import BaseModel, Field
 import json
 
 # Third-party imports
@@ -18,6 +19,33 @@ from utils import VehicleDataManager, get_sensor_status, SENSOR_RANGES
 
 # Load environment variables (optional, since we are hardcoding the key below)
 load_dotenv()
+
+# ============================================================================
+# RESPONSE MODELS FOR STRUCTURED OUTPUT
+# ============================================================================
+
+class DiagnosticResponse(BaseModel):
+    """Structured diagnostic analysis output"""
+    rca: str = Field(description="Root cause analysis of the issue")
+    priority: str = Field(description="Priority level: HIGH, MEDIUM, or LOW")
+    repair_timeline: str = Field(description="Repair timeline in days, e.g., 'Within 2 days'")
+    failure_probability: str = Field(description="Failure probability percentage, e.g., '85%'")
+
+
+class MaintenanceResponse(BaseModel):
+    """Structured maintenance analysis output"""
+    rca: str = Field(description="Maintenance need analysis")
+    priority: str = Field(description="Priority level: HIGH, MEDIUM, or LOW")
+    repair_timeline: str = Field(description="Maintenance timeline in days")
+    failure_probability: str = Field(description="Failure probability if not maintained")
+
+
+class PerformanceResponse(BaseModel):
+    """Structured performance analysis output"""
+    rca: str = Field(description="Performance degradation analysis")
+    priority: str = Field(description="Priority level: HIGH, MEDIUM, or LOW")
+    repair_timeline: str = Field(description="Optimization timeline in days")
+    failure_probability: str = Field(description="Complete performance failure probability")
 
 # ============================================================================
 # MODEL CONFIGURATION
@@ -51,34 +79,19 @@ class VehicleContext:
 
 diagnostic_agent = Agent(
     active_model,
+    result_type=DiagnosticResponse,
     deps_type=VehicleContext,
-    system_prompt="""You are an expert automotive diagnostic specialist AI for electric and hybrid vehicles.
+    system_prompt="""You are an expert automotive diagnostic AI. Analyze sensor data and return ONLY structured JSON.
 
-Your role is to analyze real-time vehicle sensor data and provide DETAILED diagnostic reports.
+Analyze all sensor categories: battery, motor, brakes, chassis, electrical/ECU, DTC codes, component aging, rate of change, signal consistency, operational context.
 
-When you receive data, analyze ALL categories thoroughly:
+Return ONLY these fields:
+- rca: Root cause analysis (concise, data-driven)
+- priority: HIGH (safety-critical, 1-2 days) | MEDIUM (performance issue, 3-7 days) | LOW (minor, 7-30 days)
+- repair_timeline: "Within X days" or "Immediate"
+- failure_probability: "X%" (0-100%, based on sensor data, DTC codes, component age)
 
-1. **Battery Sensors** (battery_soc_pct, battery_soh_pct, pack voltage/current, cell voltages, temps, charging cycles)
-2. **Motor & Inverter** (motor RPM, torque, inverter temperature)
-3. **Brake System** (pedal position, hydraulic pressure, ABS status, wheel speeds, disc temp, pad wear %)
-4. **Chassis** (steering angle/torque, yaw/pitch/roll rates, suspension travel, stress index)
-5. **Electrical/ECU** (12V battery, ECU temp, CPU/memory load, CAN bus errors, fault codes)
-6. **Environmental** (ambient temp/humidity, pressure, rain, light)
-7. **Component Aging** (battery capacity fade, resistance growth, motor efficiency loss, thermal cycles)
-8. **Rate of Change** (temp rise rate, voltage drop, current spikes, torque fluctuation)
-9. **Signal Consistency** (speed sensor disagreement, wheel variance, GPS vs wheel delta)
-10. **Operational Context** (load, passengers, AC usage, driving mode, charging recency)
-
-Provide a DETAILED report including:
-- Overall health status (Excellent/Good/Fair/Poor/Critical) with justification
-- Section-by-section analysis of each category
-- Specific values that are concerning with severity (Normal/Warning/Critical)
-- Component aging insights and predicted maintenance needs
-- Anomalies in rate_of_change or signal_consistency
-- CAN bus errors, fault codes, sensor dropouts
-- Actionable recommendations prioritized by urgency
-
-Be thorough and detailed. Reference specific sensor values and explain their significance."""
+Be concise. Reference specific sensor values."""
 )
 
 
@@ -148,51 +161,19 @@ async def check_dtc_codes(ctx: RunContext[VehicleContext]) -> Dict[str, Any]:
 
 maintenance_agent = Agent(
     active_model,
+    result_type=MaintenanceResponse,
     deps_type=VehicleContext,
-    system_prompt="""You are an expert automotive maintenance advisor AI for electric and hybrid vehicles.
+    system_prompt="""You are an expert automotive maintenance AI. Analyze maintenance needs and return ONLY structured JSON.
 
-Your role is to analyze vehicle data and provide DETAILED maintenance recommendations.
+Analyze: battery system, brake system, motor/inverter, electrical/ECU, chassis/suspension, component aging, operational context.
 
-Use ALL available data categories for a thorough assessment:
+Return ONLY these fields:
+- rca: Maintenance need analysis (concise, specific component and reason)
+- priority: HIGH (safety-critical, 1-2 days) | MEDIUM (performance-affecting, 7-14 days) | LOW (preventive, 30-60 days)
+- repair_timeline: "Within X days"
+- failure_probability: "X%" (probability of component failure if not maintained)
 
-**Battery System:**
-- battery_soh_pct, capacity_fade, charging_cycles, thermal_cycles, high_stress_cycles
-- internal_resistance_growth, cell voltage spread
-- Recommend battery health checks, balancing, cooling inspection
-
-**Brake System:**
-- brake_pad_wear_level_pct, brake_disc_temperature_c, hydraulic_brake_pressure
-- ABS activation frequency
-- Recommend pad replacement, disc inspection, fluid flush
-
-**Motor & Inverter:**
-- inverter_temperature, motor_efficiency_loss_pct
-- Recommend coolant service, thermal paste, bearing inspection
-
-**Electrical/ECU:**
-- fault_code_active_count, can_bus_error_count, sensor_signal_dropouts
-- ECU temperature, 12V battery voltage
-- Recommend software updates, connector checks, battery replacement
-
-**Chassis & Suspension:**
-- suspension_travel, chassis_stress_index
-- Recommend alignment, bushing inspection, strut/shock checks
-
-**Component Aging:**
-- Use battery_capacity_fade, motor_efficiency_loss to predict upcoming maintenance
-
-**Operational Context:**
-- driving_mode, regen_mode, time_since_last_charge
-- Adjust recommendations based on usage patterns
-
-Provide a DETAILED maintenance report:
-1. IMMEDIATE (within 24–48 hours) – safety-critical items
-2. SOON (1–2 weeks) – important but not urgent
-3. ROUTINE (1 month) – regular service items
-4. PREVENTIVE (next service) – good-practice items
-
-For each item: specific task, reason, estimated cost (low/medium/high), and interval.
-Be thorough and reference specific sensor values."""
+Be specific about which component needs maintenance."""
 )
 
 
@@ -263,60 +244,19 @@ async def check_fluid_levels(ctx: RunContext[VehicleContext]) -> Dict[str, str]:
 
 performance_agent = Agent(
     active_model,
+    result_type=PerformanceResponse,
     deps_type=VehicleContext,
-    system_prompt="""You are an expert automotive performance analyst AI for electric and hybrid vehicles.
+    system_prompt="""You are an expert automotive performance AI. Analyze performance issues and return ONLY structured JSON.
 
-Your role is to analyze performance metrics and provide a DETAILED performance report.
+Analyze: vehicle motion, idle usage, energy usage, battery/motor, rate of change, signal consistency, operational context.
 
-Use ALL available data categories:
+Return ONLY these fields:
+- rca: Performance degradation analysis (concise, identify cause and impact)
+- priority: HIGH (severe loss, safety concern, 1-3 days) | MEDIUM (noticeable degradation, 7-14 days) | LOW (minor, 30+ days)
+- repair_timeline: "Within X days"
+- failure_probability: "X%" (probability of complete performance failure)
 
-**Vehicle Motion:**
-- vehicle_speed_kmph, avg_speed_per_trip, max_speed_per_trip, speed_variance
-- distance_travelled_km, odometer_km, driving_time, stop_duration
-- speed_stability_score – interpret for driving smoothness
-
-**Idle Usage:**
-- idling_time_min, idle_frequency, idle_to_drive_ratio
-- engine_on/off, motor_on/off duration
-- Identify excessive idling and efficiency impact
-
-**Energy Usage:**
-- energy_consumption_kwh_per_km, regen_braking_contribution_pct
-- idle_energy_wastage_kwh, driving_efficiency_score
-- efficiency_degradation_trend – positive/negative trend analysis
-
-**Battery & Motor:**
-- battery_soc, pack voltage/current, motor_rpm, motor_torque_nm
-- inverter_temperature
-- Assess power delivery and thermal management
-
-**Brake System:**
-- brake_disc_temperature, wheel speeds, ABS activation
-- Evaluate braking behavior and regen contribution
-
-**Chassis:**
-- steering, yaw/pitch/roll rates, suspension travel, chassis_stress_index
-- Assess handling and load distribution
-
-**Rate of Change & Signal Consistency:**
-- battery_temp_rise_rate, voltage_drop_rate, current_spike_frequency
-- speed_sensor_disagreement, gps_vs_wheel_speed_delta
-- Identify anomalies affecting performance
-
-**Operational Context:**
-- driving_mode (ECO/SPORT/etc), regen_mode
-- vehicle_load, passenger_count, ac_usage_level
-- charging_recently, time_since_last_charge
-
-Provide a DETAILED performance report:
-1. Overall performance rating with justification
-2. Efficiency analysis (energy, regen, idle wastage)
-3. Driving behavior insights (stability, braking, smoothness)
-4. Component stress and degradation trends
-5. Optimization recommendations (driving style, charging, mode selection)
-6. Comparison to ideal benchmarks where applicable
-
-Be analytical and reference specific sensor values."""
+Focus on actionable performance issues."""
 )
 
 
@@ -456,7 +396,10 @@ async def route_query(query: str, vehicle_id: str, data_manager: VehicleDataMana
         )
         return {
             "agent": "diagnostic",
-            "response": result.data,
+            "rca": result.data.rca,
+            "priority": result.data.priority,
+            "repair_timeline": result.data.repair_timeline,
+            "failure_probability": result.data.failure_probability,
             "vehicle_id": vehicle_id
         }
     
@@ -467,7 +410,10 @@ async def route_query(query: str, vehicle_id: str, data_manager: VehicleDataMana
         )
         return {
             "agent": "maintenance",
-            "response": result.data,
+            "rca": result.data.rca,
+            "priority": result.data.priority,
+            "repair_timeline": result.data.repair_timeline,
+            "failure_probability": result.data.failure_probability,
             "vehicle_id": vehicle_id
         }
     
@@ -478,7 +424,10 @@ async def route_query(query: str, vehicle_id: str, data_manager: VehicleDataMana
         )
         return {
             "agent": "performance",
-            "response": result.data,
+            "rca": result.data.rca,
+            "priority": result.data.priority,
+            "repair_timeline": result.data.repair_timeline,
+            "failure_probability": result.data.failure_probability,
             "vehicle_id": vehicle_id
         }
     
@@ -490,7 +439,10 @@ async def route_query(query: str, vehicle_id: str, data_manager: VehicleDataMana
         )
         return {
             "agent": "diagnostic",
-            "response": result.data,
+            "rca": result.data.rca,
+            "priority": result.data.priority,
+            "repair_timeline": result.data.repair_timeline,
+            "failure_probability": result.data.failure_probability,
             "vehicle_id": vehicle_id
         }
 
@@ -534,8 +486,19 @@ async def get_comprehensive_analysis(vehicle_id: str, data_manager: VehicleDataM
 
         def safe_data(result, name):
             if isinstance(result, Exception):
-                return {"status": "failed", "agent": name, "error": repr(result)}
-            return {"status": "success", "output": result.data}
+                return {
+                    "status": "failed",
+                    "agent": name,
+                    "error": repr(result)
+                }
+            # Extract structured data from BaseModel
+            return {
+                "status": "success",
+                "rca": result.data.rca,
+                "priority": result.data.priority,
+                "repair_timeline": result.data.repair_timeline,
+                "failure_probability": result.data.failure_probability
+            }
 
         return {
             "vehicle_id": vehicle_id,
